@@ -120,11 +120,30 @@ jobs:
           tar czvf ../../../${{ matrix.platform.name }} ${{ matrix.platform.bin }} ../../../install.sh ../../../completions
           cd -
         if: startsWith( env.RELEASE_TAG, 'v' )
-      - name: Publish GitHub release
-        uses: softprops/action-gh-release@v1
+      - name: Upload archive
+        uses: actions/upload-artifact@v4
         with:
-          draft: true
+          name: ${{ matrix.platform.name }}
+          path: ${{ matrix.platform.name }}
+          if-no-files-found: error
+        if: startsWith( env.RELEASE_TAG, 'v' )
+
+  release:
+    name: Publish GitHub release
+    needs: test
+    runs-on: ubuntu-latest
+    if: startsWith( github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name, 'v' )
+    steps:
+      - name: Download archives
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: angryoxide-*
+          merge-multiple: true
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          files: "angryoxide-*"
-        if: startsWith( env.RELEASE_TAG, 'v' )
+          generate_release_notes: true
+          files: dist/angryoxide-*
