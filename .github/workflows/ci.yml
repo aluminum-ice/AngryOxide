@@ -4,11 +4,18 @@ on:
   push:
     tags:
       - "*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create (must start with 'v', e.g. v0.9.0)"
+        required: true
+        type: string
 
 env:
   CRATE_NAME: angry_oxide
   GITHUB_TOKEN: ${{ github.token }}
   RUST_BACKTRACE: 1
+  RELEASE_TAG: ${{ github.event_name == 'workflow_dispatch' && inputs.tag || github.ref_name }}
 
 permissions:
   contents: write
@@ -112,11 +119,12 @@ jobs:
           cd target/${{ matrix.platform.target }}/release
           tar czvf ../../../${{ matrix.platform.name }} ${{ matrix.platform.bin }} ../../../install.sh ../../../completions
           cd -
-        if: |
-          startsWith( github.ref, 'refs/tags/v' )
+        if: startsWith( env.RELEASE_TAG, 'v' )
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v1
         with:
           draft: true
+          tag_name: ${{ env.RELEASE_TAG }}
+          target_commitish: ${{ github.sha }}
           files: "angryoxide-*"
-        if: startsWith( github.ref, 'refs/tags/v' )
+        if: startsWith( env.RELEASE_TAG, 'v' )
