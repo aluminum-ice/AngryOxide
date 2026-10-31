@@ -315,3 +315,67 @@ impl PacketData {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use libwifi::frame::components::MacAddress;
+    use std::time::SystemTime;
+    use uuid::Uuid;
+
+    fn frame(id: u64) -> FrameData {
+        FrameData::new(
+            SystemTime::now(),
+            id,
+            vec![0x80, 0x00, 0x00, 0x00],
+            None,
+            MacAddress([0x00, 0x00, 0x5e, 0x00, 0x53, 0x01]),
+            MacAddress([0xff; 6]),
+            Some(2412.0),
+            Some(-40),
+            Some(1.0),
+            Uuid::new_v4(),
+        )
+    }
+
+    fn packets_db() -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "create table if not exists packets (ts_sec integer, ts_usec integer, phyname TEXT, sourcemac TEXT, destmac TEXT, transmac TEXT, frequency REAL, devkey TEXT, lat REAL, lon REAL, alt REAL, speed REAL, heading REAL, packet_len integer, signal integer, datasource TEXT, dlt integer, packet BLOB, error integer, tags TEXT, datarate REAL, hash integer, packetid integer )",
+            (),
+        )
+        .unwrap();
+        conn
+    }
+
+    fn rows(conn: &Connection) -> i64 {
+        conn.query_row("SELECT COUNT(*) FROM packets", [], |r| r.get(0))
+            .unwrap()
+    }
+
+    #[test]
+    fn write_batch_inserts_every_frame_and_empties_the_batch() {
+        let mut conn = packets_db();
+        let mut batch: Vec<FrameData> = (0..2500).map(frame).collect();
+        write_batch(&mut conn, &mut batch);
+        assert!(batch.is_empty());
+        assert_eq!(rows(&conn), 2500);
+        // A second, empty batch is a no-op.
+        write_batch(&mut conn, &mut batch);
+        assert_eq!(rows(&conn), 2500);
+    }
+
+    #[test]
+    fn write_batch_skips_a_frame_that_fails_and_keeps_the_rest() {
+        let mut conn = packets_db();
+        // A trigger that rejects packetid 3 stands in for a failed insert.
+        conn.execute_batch(
+            "CREATE TRIGGER reject_three BEFORE INSERT ON packets WHEN NEW.packetid = 3 \
+             BEGIN SELECT RAISE(ABORT, 'rejected'); END;",
+        )
+        .unwrap();
+        let mut batch: Vec<FrameData> = (0..6).map(frame).collect();
+        write_batch(&mut conn, &mut batch);
+        assert_eq!(rows(&conn), 5);
+    }
+}
